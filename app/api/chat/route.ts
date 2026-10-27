@@ -135,16 +135,27 @@ ${context}`,
         max_tokens: 300,
         temperature: 0.7,
       })
-      const msg = response.choices[0].message
+const msg = response.choices[0].message
       if (msg.tool_calls) {
-        messages.push(msg)
+        messages.push({
+          role: 'assistant',
+          content: msg.content || null,
+          tool_calls: msg.tool_calls,
+        })
         for (const tc of msg.tool_calls) {
-          const result = runTool(tc.function.name, JSON.parse(tc.function.arguments))
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+          if (tc.type === 'function') {
+            const result = runTool(tc.function.name, JSON.parse(tc.function.arguments))
+            messages.push({ 
+              role: 'tool', 
+              tool_call_id: tc.id, 
+              content: typeof result === 'string' ? result : JSON.stringify(result) 
+            })
+          }
         }
       } else {
-        chatHistories[sid].push({ role: 'assistant', content: msg.content })
-        return NextResponse.json({ reply: msg.content })
+        const replyContent = msg.content || ''
+        chatHistories[sid].push({ role: 'assistant', content: replyContent })
+        return NextResponse.json({ reply: replyContent })
       }
     }
   } catch (e: any) {
