@@ -2,21 +2,31 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
-// const pdfParse = require('pdf-parse')
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 let pdfContext: string | null = null
 
-async function getPdfContext() {
-  const pdfParse = require('pdf-parse')
+async function getPdfContext(): Promise<string> {
+  if (pdfContext !== null) return pdfContext
 
-  if (pdfContext) return pdfContext
-  const pdfPath = path.join(process.cwd(), 'Personal training programs.pdf')
-  if (!fs.existsSync(pdfPath)) return ''
-  const buffer = fs.readFileSync(pdfPath)
-  const data = await pdfParse(buffer)
-  pdfContext = data.text.slice(0, 6000)
+  try {
+    const pdfParse = require('pdf-parse')
+    const pdfPath = path.join(process.cwd(), 'Personal training programs.pdf')
+    
+    if (!fs.existsSync(pdfPath)) {
+      pdfContext = ''
+      return pdfContext
+    }
+
+    const buffer = fs.readFileSync(pdfPath)
+    const data = await pdfParse(buffer)
+    pdfContext = data.text.slice(0, 6000)
+  } catch (error) {
+    console.error('Error loading PDF context:', error)
+    pdfContext = ''
+  }
+
   return pdfContext
 }
 
@@ -96,17 +106,20 @@ function runTool(name: string, args: Record<string, any>): string {
 const chatHistories: Record<string, OpenAI.Chat.ChatCompletionMessageParam[]> = {}
 
 export async function POST(req: NextRequest) {
-  const { message, sessionId } = await req.json()
-  if (!message) return NextResponse.json({ error: 'message required' }, { status: 400 })
+  try {
+    const { message, sessionId } = await req.json()
+    if (!message) {
+      return NextResponse.json({ error: 'message required' }, { status: 400 })
+    }
 
-  const sid = sessionId || 'default'
-  const context = await getPdfContext()
+    const sid = sessionId || 'default'
+    const context = await getPdfContext()
 
-  if (!chatHistories[sid]) {
-    chatHistories[sid] = [
-      {
-        role: 'system',
-        content: `את עוזרת אישית של אתר FitnessHealth — אתר לאימון אישי ותזונה בריאה.
+    if (!chatHistories[sid]) {
+      chatHistories[sid] = [
+        {
+          role: 'system',
+          content: `את עוזרת אישית של אתר FitnessHealth — אתר לאימון אישי ותזונה בריאה.
 ענה אך ורק על שאלות הקשורות לכושר, תזונה, אימונים, בריאות ואתר זה.
 אם שואלים על נושא שאינו קשור — ענה בדיוק כך: "🏋️ אני כאן רק לעזור בנושאי כושר ותזונה! לשאלות אחרות אני לא יכולה לעזור 😊"
 אם יש בעיה טכנית או בעיית התחברות לאתר — ענה בדיוק כך: "⚙️ נתקלת בבעיה טכנית? נסי לרענן את הדף או לצאת ולהיכנס מחדש. אם הבעיה נמשכת — צרי קשר דרך הטופס בתחתית הדף 📩"
@@ -116,19 +129,19 @@ export async function POST(req: NextRequest) {
 
 מידע מקצועי מהמאמנת:
 ${context}`,
-      },
-    ]
-  }
+        },
+      ]
+    }
 
-  chatHistories[sid].push({ role: 'user', content: message })
+    chatHistories[sid].push({ role: 'user', content: message })
 
-  // שמור היסטוריה מוגבלת — מקסימום 10 הודעות אחרונות + system
-  if (chatHistories[sid].length > 12) {
-    chatHistories[sid] = [chatHistories[sid][0], ...chatHistories[sid].slice(-10)]
-  }
+    // שמור היסטוריה מוגבלת — מקסימום 10 הודעות אחרונות + system
+    if (chatHistories[sid].length > 12) {
+      chatHistories[sid] = [chatHistories[sid][0], ...chatHistories[sid].slice(-10)]
+    }
 
-  try {
     let messages = chatHistories[sid]
+
     while (true) {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -137,20 +150,30 @@ ${context}`,
         max_tokens: 300,
         temperature: 0.7,
       })
-const msg = response.choices[0].message
+
+      const msg = response.choices[0].message
+
       if (msg.tool_calls) {
         messages.push({
           role: 'assistant',
           content: msg.content || null,
           tool_calls: msg.tool_calls,
         })
+
         for (const tc of msg.tool_calls) {
           if (tc.type === 'function') {
-            const result = runTool(tc.function.name, JSON.parse(tc.function.arguments))
-            messages.push({ 
-              role: 'tool', 
-              tool_call_id: tc.id, 
-              content: typeof result === 'string' ? result : JSON.stringify(result) 
+            let parsedArgs = {}
+            try {
+              parsedArgs = JSON.parse(tc.function.arguments)
+            } catch (err) {
+              parsedArgs = {}
+            }
+
+            const result = runTool(tc.function.name, parsedArgs)
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: typeof result === 'string' ? result : JSON.stringify(result),
             })
           }
         }
@@ -161,7 +184,7 @@ const msg = response.choices[0].message
       }
     }
   } catch (e: any) {
-    console.error(e)
+    console.error('API Error:', e)
     return NextResponse.json({ reply: 'מצטערת, משהו השתבש. נסי שוב.' }, { status: 500 })
   }
 }
