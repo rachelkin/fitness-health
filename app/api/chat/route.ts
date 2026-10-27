@@ -5,10 +5,10 @@ import path from 'path'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-let pdfContext: string | null = null
+let pdfContext: string = ''
 
 async function getPdfContext(): Promise<string> {
-  if (pdfContext !== null) return pdfContext
+  if (pdfContext !== '') return pdfContext
 
   try {
     const pdfParse = require('pdf-parse')
@@ -135,7 +135,6 @@ ${context}`,
 
     chatHistories[sid].push({ role: 'user', content: message })
 
-    // שמור היסטוריה מוגבלת — מקסימום 10 הודעות אחרונות + system
     if (chatHistories[sid].length > 12) {
       chatHistories[sid] = [chatHistories[sid][0], ...chatHistories[sid].slice(-10)]
     }
