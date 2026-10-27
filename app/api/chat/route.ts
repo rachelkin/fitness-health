@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
-const pdfParse = require('pdf-parse')
+// const pdfParse = require('pdf-parse')
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 let pdfContext: string | null = null
 
 async function getPdfContext() {
+  const pdfParse = require('pdf-parse')
+
   if (pdfContext) return pdfContext
   const pdfPath = path.join(process.cwd(), 'Personal training programs.pdf')
   if (!fs.existsSync(pdfPath)) return ''
